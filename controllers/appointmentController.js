@@ -1,21 +1,21 @@
 const Appointment = require("../models/Appointment");
 const Notification = require("../models/Notification");
 
-// Book appointment
 const bookAppointment = async (req, res) => {
     try {
         const { doctorId, date, reason } = req.body;
-        const userId = req.user._id;
+        const patientId = req.user._id;
+
 
         const appointment = new Appointment({
-            userId,
-            doctorId,
+            patientId,      
+            doctorId,  
             date,
             reason,
             status: 'Pending',
         });
 
-        await appointment.save();
+        await appointment.save(); 
 
         // Notify patient
         await Notification.create({
@@ -39,14 +39,22 @@ const bookAppointment = async (req, res) => {
     }
 };
 
-// Reschedule appointment
 const rescheduleAppointment = async (req, res) => {
     try {
         const { id } = req.params;
         const { date } = req.body;
-        const patientId = req.user._id;
+        const userId = req.user._id;
+        const userRole = req.user.role;
 
-        const appointment = await Appointment.findOne({ _id: id, patientId });
+        let appointment;
+
+        if(userRole === 'user') {
+            // User can reschedule
+            appointment = await Appointment.findOne({ _id: id, patientId: userId });
+        } else if(userRole === 'doctor') {
+            // Doctor can reschedule
+            appointment = await Appointment.findOne({ _id: id, doctorId: userId });
+        }
 
         if (!appointment) {
             return res.status(404).json({ status: 'error', message: 'Appointment not found' });
@@ -56,18 +64,19 @@ const rescheduleAppointment = async (req, res) => {
         appointment.status = 'Pending';
         await appointment.save();
 
-        // Notify both
+        // Notify patient
         await Notification.create({
-            userId: patientId,
+            userId: appointment.patientId,
             title: "Appointment Rescheduled",
             message: `Your appointment has been rescheduled to ${date}`,
             type: "appointment",
         });
 
+        // Notify doctor
         await Notification.create({
             userId: appointment.doctorId,
             title: "Appointment Rescheduled",
-            message: `A patient has rescheduled their appointment to ${date}`,
+            message: `Appointment rescheduled to ${date}`,
             type: "appointment",
         });
 
@@ -77,7 +86,6 @@ const rescheduleAppointment = async (req, res) => {
     }
 };
 
-// Cancel appointment (Patient)
 const cancelAppointment = async (req, res) => {
     try {
         const { id } = req.params;
@@ -92,7 +100,7 @@ const cancelAppointment = async (req, res) => {
         appointment.status = 'Cancelled';
         await appointment.save();
 
-        // Notify both
+        // Notify patient
         await Notification.create({
             userId: patientId,
             title: "Appointment Cancelled",
@@ -100,6 +108,7 @@ const cancelAppointment = async (req, res) => {
             type: "appointment",
         });
 
+        // Notify doctor
         await Notification.create({
             userId: appointment.doctorId,
             title: "Appointment Cancelled",
@@ -113,7 +122,6 @@ const cancelAppointment = async (req, res) => {
     }
 };
 
-// View all appointments for a doctor
 const getDoctorAppointments = async (req, res) => {
     try {
         const doctorId = req.user._id;
@@ -127,13 +135,12 @@ const getDoctorAppointments = async (req, res) => {
     }
 };
 
-// Mark appointment as complete
 const markComplete = async (req, res) => {
     try {
-        const { userId } = req.params;
+        const { id } = req.params; // appointment id
         const doctorId = req.user._id;
 
-        const appointment = await Appointment.findOne({ _id: userId, doctorId });
+        const appointment = await Appointment.findOne({ _id: id, doctorId });
 
         if (!appointment) {
             return res.status(404).json({ status: 'error', message: 'Appointment not found' });
@@ -160,7 +167,6 @@ const markComplete = async (req, res) => {
     }
 };
 
-// Cancel appointment (Doctor)
 const cancelAppointmentByDoctor = async (req, res) => {
     try {
         const { id } = req.params;
@@ -175,7 +181,7 @@ const cancelAppointmentByDoctor = async (req, res) => {
         appointment.status = "Cancelled";
         await appointment.save();
 
-        // Notify both
+        // Notify patient
         await Notification.create({
             userId: appointment.patientId,
             title: "Appointment Cancelled by Doctor",
@@ -183,6 +189,7 @@ const cancelAppointmentByDoctor = async (req, res) => {
             type: "appointment",
         });
 
+        // Notify doctor
         await Notification.create({
             userId: doctorId,
             title: "Appointment Cancelled",
@@ -196,11 +203,4 @@ const cancelAppointmentByDoctor = async (req, res) => {
     }
 };
 
-module.exports = {
-    bookAppointment,
-    rescheduleAppointment,
-    cancelAppointment,
-    getDoctorAppointments,
-    markComplete,
-    cancelAppointmentByDoctor
-};
+module.exports = { bookAppointment, rescheduleAppointment, cancelAppointment, getDoctorAppointments, markComplete, cancelAppointmentByDoctor };

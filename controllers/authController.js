@@ -1,9 +1,9 @@
-const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const generateOTP = require('../utils/generateOTP');
 const sendEmail = require('../utils/sendEmail');
-const AuditLog = require('../models/AuditLog');
 const { addToBlacklist } = require('../utils/tokenBlacklist');
 const generateRecoveryCodes = require('../utils/recoveryCode');
 
@@ -67,7 +67,6 @@ const registerUser = async (req, res) => {
   }
 };
 
-// Verify OTP
 const verifyOTP = async (req, res) => {
   try {
     const { email, otp, role } = req.body;
@@ -183,7 +182,7 @@ const loginUser = async (req, res) => {
         details: { email: user.email },
       });
 
-      // Temp token - isTwoFAVerified: false means must verify 2FA
+      // Temporary token
       const tempPayload = {
         id: user._id,
         role: user.role,
@@ -279,7 +278,6 @@ const verify2FA = async (req, res) => {
   }
 };
 
-// Verify recovery code for 2FA bypass
 const verifyRecoveryCode = async (req, res) => {
   try {
     const { recoveryCode } = req.body;
@@ -327,7 +325,6 @@ const verifyRecoveryCode = async (req, res) => {
   }
 };
 
-// Regenerate recovery codes
 const regenerateRecoveryCodes = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -380,12 +377,4 @@ const logout = async (req, res) => {
 };
 
 
-module.exports = {
-  registerUser,
-  verifyOTP,
-  loginUser,
-  verify2FA,
-  verifyRecoveryCode,
-  regenerateRecoveryCodes,
-  logout,
-};
+module.exports = { registerUser, verifyOTP, loginUser, verify2FA, verifyRecoveryCode, regenerateRecoveryCodes, logout, };

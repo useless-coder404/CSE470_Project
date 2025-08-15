@@ -24,8 +24,8 @@ const doctorProfileSchema = new mongoose.Schema(
                 default: 'Point'
             },
             coordinates: {
-                type: [Number],
-                required: true, 
+                type: [Number], 
+                required: true,
             }
         },
         phone: { type: String },

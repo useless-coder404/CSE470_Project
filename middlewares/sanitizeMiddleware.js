@@ -1,31 +1,32 @@
 const { body, query, param } = require('express-validator');
 
 const sanitizeProfileUpdate = [
-  body('*').escape().trim(),
+  //General Fields
+  body('name').optional().escape().trim().isLength({ min: 2 }).withMessage('Name too short'),
   body('email').optional().isEmail().withMessage('Invalid email format'),
-  body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
-  body('name').optional().isLength({ min: 2 }).withMessage('Name too short'),
-
-  // Additional validations for doctor profile update fields
-  body('specialty').optional().isString().withMessage('Specialty must be a string'),
-  body('bio').optional().isString().withMessage('Bio must be a string'),
+  body('phone').optional().escape().trim().isMobilePhone().withMessage('Invalid phone number'),
+  body('specialty').optional().escape().trim().isString().withMessage('Specialty must be a string'),
+  body('bio').optional().escape().trim().isString().withMessage('Bio must be a string'),
   body('fees').optional().isNumeric().withMessage('Fees must be a number'),
   body('experience').optional().isNumeric().withMessage('Experience must be a number'),
 
-  // clinicLocation validation with custom check
+  // ClinicLocation Validation
   body('clinicLocation').optional().custom(value => {
-    if (typeof value !== 'object' || value.type !== 'Point' || !Array.isArray(value.coordinates) || value.coordinates.length !== 2) {
+    if (
+      typeof value !== 'object' ||
+      value.type !== 'Point' ||
+      !Array.isArray(value.coordinates) ||
+      value.coordinates.length !== 2 ||
+      typeof value.coordinates[0] !== 'number' ||
+      typeof value.coordinates[1] !== 'number'
+    ) {
       throw new Error('Invalid clinicLocation format');
-    }
-    if (typeof value.coordinates[0] !== 'number' || typeof value.coordinates[1] !== 'number') {
-      throw new Error('clinicLocation.coordinates must be an array of two numbers');
     }
     return true;
   }),
 
-  // availability should be an array
-  body('availability').optional().isArray().withMessage('Availability must be an array'),
-  // Optional: You can add nested validation for availability array elements here if needed
+  // Availability validation
+  body('availability').optional().isArray().withMessage('Availability must be an array')
 ];
 
 const sanitizeSearch = [

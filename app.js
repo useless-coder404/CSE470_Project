@@ -3,13 +3,11 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const cookieParser = require('cookie-parser');
 const path = require("path");
-
 const authRouter = require('./routes/authRoutes');
 const doctorRouter = require('./routes/doctorRoutes');
 const adminRouter = require('./routes/adminRoutes');
 const userRouter = require('./routes/userRoutes');
 const notifyRouter = require('./routes/notificationRoutes');
-
 
 dotenv.config();
 const app = express();
@@ -37,7 +35,7 @@ app.use((err, req, res, next) => {
   res.status(500).send({ message: 'Something broke!' });
 });
 
-// In your backend server.js or app.js (Node/Express) remove after test
+//Need to Remove 
 app.get('/api/test', (req, res) => {
   res.json({ message: "API is working" });
 });
@@ -49,7 +47,6 @@ app.get("/api/ping", (req, res) => {
 app.get("/", (req, res) => {
   res.send("Welcome to the Health Assistant API");
 });
-
 
 
 module.exports = app;

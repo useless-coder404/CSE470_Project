@@ -1,12 +1,13 @@
 const asyncHandler = require('express-async-handler');
 const User = require("../models/User");
-const sanitizeInput = require('../utils/sanitizeInput');
+const HealthLog = require('../models/HealthLog');
 const AuditLog = require('../models/AuditLog');
+const sanitizeInput = require('../utils/sanitizeInput');
 const generateOTP = require('../utils/generateOTP');
 const generateRecoveryCodes = require('../utils/recoveryCode');
 const sendEmail = require('../utils/sendEmail');
 
-const HealthLog = require('../models/HealthLog');
+
 const Appointment = require('../models/Appointment');
 const Reminder = require('../models/Reminder');
 const Prescription = require('../models/Prescription');
@@ -18,9 +19,9 @@ const toggleTwoFA = async (req, res) => {
     const user = await User.findById(userId);
 
     if (!user) return res.status(404).json({ message: 'User not found.' });
-
+    
+    // Disable 2FA
     if (user.isTwoFAEnabled) {
-      // Disable 2FA
       user.isTwoFAEnabled = false;
       user.twoFAToken = null;
       user.twoFATokenExpires = null;
@@ -37,7 +38,7 @@ const toggleTwoFA = async (req, res) => {
       return res.status(200).json({ message: '2FA has been disabled.' });
 
     } else {
-      // Enable 2FA - generate OTP and recovery codes
+      // Enable 2FA
       const otp = generateOTP();
       const expires = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -97,9 +98,9 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
     // Audit Log entry
     await AuditLog.create({
-        performedBy: req.user._id,          // <-- changed here
+        performedBy: req.user._id,
         action: 'update_profile',
-        details: { updatedFields: Object.keys(updates) }  // renamed metadata to details (to match schema)
+        details: { updatedFields: Object.keys(updates) }
     });
 
     res.status(200).json({
@@ -108,7 +109,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         user: updatedUser
     });
 });
-
 
 const deleteAccount = async (req, res) => {
     try {
@@ -135,7 +135,7 @@ const deleteAccount = async (req, res) => {
       
       await AuditLog.create({
         action: 'User Account Deleted',
-        performedBy: req.user._id,  // << This is REQUIRED
+        performedBy: req.user._id,
         details: { userId: req.user._id }
 
       });
@@ -143,35 +143,47 @@ const deleteAccount = async (req, res) => {
       res.status(200).json({ message: 'Account deleted successfully.' });
     
     } catch (error) {
-      console.error("Delete Account Error:", error); // this line
+      console.error("Delete Account Error:", error);
       res.status(500).json({ error: 'Server error during account deletion.' });
     }
 };
 
 const getHealthSummary = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
 
-    // Fetch latest health log
-    const latestLog = await HealthLog.findOne({ user: userId }).sort({ date: -1 });
+    // Fetch all health logs of the user
+    const logs = await HealthLog.find({ userId }).sort({ date: -1 });
 
-    // Aggregate health log data (e.g., averages)
-    const logs = await HealthLog.find({ user: userId });
-    const avgWeight = logs.length ? (logs.reduce((sum, log) => sum + (log.weight || 0), 0) / logs.length) : null;
-    const avgBP = logs.length ? (
-      logs.reduce((sum, log) => sum + ((log.bloodPressure && log.bloodPressure.systolic) || 0), 0) / logs.length
-    ) : null;
+    if (!logs.length) {
+      return res.status(200).json({
+        success: true,
+        summary: {
+          latestLog: null,
+          averages: {
+            weight: null,
+            bloodPressure: null,
+            heartRate: null,
+            temperature: null
+          },
+          totalLogs: 0
+        }
+      });
+    }
 
-    // Appointments: upcoming & past
-    const upcomingAppointments = await Appointment.find({ user: userId, date: { $gte: new Date() } }).sort({ date: 1 });
-    const pastAppointments = await Appointment.find({ user: userId, date: { $lt: new Date() } }).sort({ date: -1 });
+    const latestLog = logs[0];
 
-    // Reminders
-    const activeReminders = await Reminder.find({ user: userId, completed: false });
-    const completedReminders = await Reminder.find({ user: userId, completed: true });
-
-    // Prescriptions
-    const prescriptions = await Prescription.find({ user: userId }).sort({ date: -1 });
+    // Compute averages
+    const avgWeight = logs.reduce((sum, l) => sum + (l.weight || 0), 0) / logs.length;
+    const avgBP = logs.reduce((sum, l) => {
+      if (l.vitals?.bloodPressure) {
+        const [sys] = l.vitals.bloodPressure.split('/').map(Number);
+        return sum + (sys || 0);
+      }
+      return sum;
+    }, 0) / logs.length;
+    const avgHR = logs.reduce((sum, l) => sum + (l.vitals?.heartRate || 0), 0) / logs.length;
+    const avgTemp = logs.reduce((sum, l) => sum + (l.vitals?.temperature || 0), 0) / logs.length;
 
     res.status(200).json({
       success: true,
@@ -179,20 +191,11 @@ const getHealthSummary = async (req, res) => {
         latestLog,
         averages: {
           weight: avgWeight,
-          bloodPressure: avgBP
+          bloodPressure: avgBP,
+          heartRate: avgHR,
+          temperature: avgTemp
         },
-        appointments: {
-          upcoming: upcomingAppointments,
-          past: pastAppointments
-        },
-        reminders: {
-          active: activeReminders,
-          completed: completedReminders
-        },
-        prescriptions: {
-          total: prescriptions.length,
-          recent: prescriptions.slice(0, 5)
-        }
+        totalLogs: logs.length
       }
     });
 
@@ -203,6 +206,3 @@ const getHealthSummary = async (req, res) => {
 };
 
 module.exports = { updateUserProfile, toggleTwoFA, deleteAccount, getHealthSummary };
-
-
-

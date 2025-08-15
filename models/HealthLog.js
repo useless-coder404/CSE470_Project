@@ -20,8 +20,8 @@ const healthLogSchema = new mongoose.Schema(
             bloodPressure: String
         },
         notes: String,
-        height: Number,  // in cm or inches (specify in docs)
-        weight: Number,  // in kg or lbs (specify in docs)
+        height: Number,  // in cm or inches 
+        weight: Number,  // in kg or lbs 
     }, 
     { 
         timestamps: true 

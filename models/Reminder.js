@@ -15,7 +15,11 @@ const reminderSchema = new mongoose.Schema(
             enum: ['None', 'Daily', 'Weekly'], 
             default: 'None' 
         },
-        notes: String
+        notes: String,
+        completed: {
+            type: Boolean,
+            default: false,
+        },
     }, 
     { 
         timestamps: true 

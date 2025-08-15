@@ -1,3 +1,5 @@
+const express = require('express');
+const userRouter = express.Router();
 const { logout, verify2FA } = require('../controllers/authController');
 const { deleteAccount, updateUserProfile, toggleTwoFA, getHealthSummary } = require('../controllers/userController');
 const { createReminder, getReminders, updateReminder, deleteReminder } = require('../controllers/reminderController');
@@ -10,11 +12,6 @@ const { sanitizeProfileUpdate, sanitizeHealthLog, sanitizeReminder } = require('
 const twoFAEnforce = require('../middlewares/twoFAEnforce');
 const { verify2FALimiter } = require('../middlewares/rateLimiter');
 const validationHandler = require('../middlewares/validationHandler');
-
-const express = require('express');
-const userRouter = express.Router();
-
-
 
 //User
 userRouter.patch('/update-profile', protect, restrictTo('user'), twoFAEnforce, sanitizeProfileUpdate, validationHandler, updateUserProfile);
@@ -46,7 +43,4 @@ userRouter.get('/get-healthlogs', protect, restrictTo('user', 'doctor'), getHeal
 userRouter.get('/get-healthlog/:id', protect, restrictTo('user', 'doctor'), getHealthLog);
 userRouter.get('/get-health-summary', protect, restrictTo('user', 'doctor'), getHealthSummary);
 
-
 module.exports = userRouter; 
-
-

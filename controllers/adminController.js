@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const DoctorProfile = require("../models/DoctorProfile");
-const sendEmail = require('../utils/sendEmail');
 const AuditLog = require('../models/AuditLog');
+const sendEmail = require('../utils/sendEmail');
 
 const getPendingDoctors = async (req, res) => {
     try {
@@ -55,11 +55,11 @@ const verifyDoctor = async (req, res) => {
 
         await AuditLog.create({
             action: `Doctor Verification ${action === "approve" ? "Approved" : "Rejected"}`,
-            performedBy: req.user._id,  // Admin user performing the action
+            performedBy: req.user._id,
             details: { doctorId: doctor._id, doctorEmail: doctor.email },
         });
 
-        // Send notification email
+        //Send Email
         const emailSubject = action === 'approve' ? 'Doctor Verification Approved' : 'Doctor Verification Rejected';
         const emailBody = `Hello ${doctor.name}, your verification status has been updated to: ${doctor.verificationStatus}.`;
         const html = `<p>Hello <strong>${doctor.name}<strong>, your verification status has been updated to: <strong>${doctor.verificationStatus}<strong>.`;
@@ -197,4 +197,5 @@ const sendNotification = async (req, res) => {
     }
 };
 
-module.exports = { getPendingDoctors, verifyDoctor, getAllUsers, getAllDoctors, blockUser, unblockUser, deleteUser, auditLog, sendNotification };
+module.exports = { getPendingDoctors, verifyDoctor, getAllUsers, getAllDoctors, 
+    blockUser, unblockUser, deleteUser, auditLog, sendNotification };

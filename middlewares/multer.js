@@ -11,7 +11,7 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
-// === 1. Multer for Doctor Documents ===
+// Doctor Document
 const doctorStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, path.join(__dirname, '../uploads/docs'));
@@ -25,7 +25,7 @@ const doctorStorage = multer.diskStorage({
 
 const uploadDoctorDocs = multer({ storage: doctorStorage, fileFilter });
 
-// === 2. Multer for Prescriptions ===
+// Prescription
 const prescriptionStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, path.join(__dirname, '../uploads/prescriptions'));

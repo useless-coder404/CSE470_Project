@@ -1,9 +1,11 @@
 const asyncHandler = require('express-async-handler');
 const dayjs = require('dayjs');
+const mongoose = require('mongoose');
+const sanitizeInput = require('../utils/sanitizeInput');
 const DoctorProfile = require("../models/DoctorProfile");
 const User = require("../models/User");
 const AuditLog = require('../models/AuditLog');
-const sanitizeInput = require('../utils/sanitizeInput');
+const HealthLog = require('../models/HealthLog');
 
 
 const uploadDocument = async (req, res) => {
@@ -17,12 +19,14 @@ const uploadDocument = async (req, res) => {
             return res.status(400).json({ message: "No document uploaded" });
         }
 
-        // Find or create doctor profile
         let profile = await DoctorProfile.findOne({ userId: userId });
-
         
         if (!profile) {
-            profile = new DoctorProfile({ userId: userId, documents: [] });
+            profile = new DoctorProfile({ 
+              userId: userId, 
+              documents: [],
+              clinicLocation: { type: 'Point', coordinates: [0, 0] }
+            });
         }
         
         // Add uploaded document
@@ -49,130 +53,103 @@ const uploadDocument = async (req, res) => {
     }
 };
 
-const getPublicDoctors = async (req, res) => {
+const getPublicDoctors = asyncHandler(async (req, res) => {
     try {
-        const { name, specialty, location } = req.query;
-        
-        const query = {
-            role: "doctor",
-            verificationStatus: "Verified",
+        const { name, specialty } = req.query;
+
+        const userQuery = {
+            role: 'doctor',
+            verificationStatus: 'Verified',
             isBlocked: false,
         };
-        
+
         if (name) {
-            query.name = { $regex: name, $options: "i" };
+            userQuery.name = { $regex: name, $options: 'i' };
         }
-        
-        if (location) {
-            query["DoctorProfile.clinicLocation"] = { $regex: location, $options: "i" };
-        }
-        
-        if (specialty) {
-            query["DoctorProfile.specialty"] = { $regex: specialty, $options: "i" };
-        }
-        
-        const doctors = await User.find(query).select("-password -otpToken -twoFASecret").populate({
-            path: "DoctorProfile",
-            select: "specialty bio clinicLocation phone rating experience availability",
-        });
-        
+
+        // Find doctors and populate doctorProfile
+        let doctors = await User.find(userQuery)
+            .select('-password -otpToken -twoFASecret -recoveryCodes ')
+            .populate({
+                path: 'doctorProfile',
+                select: 'specialty bio clinicLocation phone rating experience availability fees',
+                match: specialty ? { specialty: { $regex: specialty, $options: 'i' } } : {},
+            });
+
+        // Filter out doctors without a profile or specialty mismatch
+        doctors = doctors.filter(doc => doc.doctorProfile);
+
         res.status(200).json({
-            status: "success",
+            status: 'success',
             results: doctors.length,
             doctors,
         });
-    
     } catch (error) {
-        console.error("Doctor public listing error:", error);
-        res.status(500).json({ status: "error", message: "Failed to load doctors" });
+        console.error('Public doctors fetch error:', error);
+        res.status(500).json({ status: 'error', message: 'Failed to fetch public doctors' });
     }
-};
+});
 
-const updateDoctorProfile = asyncHandler(async (req, res) => {
+const updateDoctorProfile = asyncHandler(async (req, res) => { 
   const doctorId = req.user._id;
 
-  if ('email' in req.body || 'role' in req.body) {
-    return res.status(400).json({
-      status: 'fail',
-      errors: [{ msg: "Email and role cannot be updated" }]
-    });
-  }
+  if ('email' in req.body || 'role' in req.body) { 
+    return res.status(400).json({ 
+      status: 'fail', 
+      errors: [{ msg: "Email and role cannot be updated" }] 
+    }); 
+  } 
+  
+  const allowedFields = [ 
+    'specialty', 'bio', 'phone', 'clinicLocation', 
+    'experience', 'fees', 'availability' 
+  ]; 
+  
+  const updates = {}; 
+  
+  for (let field of allowedFields) { 
+    const value = req.body[field];
+    if (!value) continue;
 
-  const allowedFields = [
-    'specialty', 'bio', 'phone', 'clinicLocation',
-    'experience', 'fees', 'availability'
-  ];
-
-  const updates = {};
-
-  for (let field of allowedFields) {
-    if (field === 'clinicLocation' && req.body.clinicLocation) {
-      const loc = req.body.clinicLocation;
-
+    if (field === 'clinicLocation') {
       if (
-        typeof loc !== 'object' ||
-        loc.type !== 'Point' ||
-        !Array.isArray(loc.coordinates) ||
-        loc.coordinates.length !== 2 ||
-        typeof loc.coordinates[0] !== 'number' ||
-        typeof loc.coordinates[1] !== 'number'
+        typeof value !== 'object' || value.type !== 'Point' ||
+        !Array.isArray(value.coordinates) || value.coordinates.length !== 2 ||
+        typeof value.coordinates[0] !== 'number' || typeof value.coordinates[1] !== 'number'
       ) {
-        return res.status(400).json({
-          status: 'fail',
-          errors: [{ msg: "Invalid clinicLocation format" }]
-        });
+        return res.status(400).json({ status: 'fail', errors: [{ msg: "Invalid clinicLocation format" }] });
+      }
+      updates['clinicLocation'] = value; 
+    }
+
+    else if (field === 'availability') {
+      if (!Array.isArray(value)) {
+        return res.status(400).json({ status: 'fail', errors: [{ msg: "Availability must be an array" }] });
       }
 
-      updates['clinicLocation'] = {
-        type: 'Point',
-        coordinates: loc.coordinates,
-      };
-
-    } else if (field === 'availability' && req.body.availability) {
-      const availability = req.body.availability;
-
-      if (!Array.isArray(availability)) {
-        return res.status(400).json({
-          status: 'fail',
-          errors: [{ msg: "Availability must be an array" }]
-        });
-      }
-
-      for (let slot of availability) {
+      for (let slot of value) {
         if (
           !slot.day || !slot.startTime || !slot.endTime ||
-          typeof slot.day !== 'string' ||
-          typeof slot.startTime !== 'string' ||
-          typeof slot.endTime !== 'string'
+          typeof slot.day !== 'string' || typeof slot.startTime !== 'string' || typeof slot.endTime !== 'string'
         ) {
-          return res.status(400).json({
-            status: 'fail',
-            errors: [{ msg: "Invalid availability slot format" }]
-          });
+          return res.status(400).json({ status: 'fail', errors: [{ msg: "Invalid availability slot format" }] });
         }
 
         const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         if (!validDays.includes(slot.day)) {
-          return res.status(400).json({
-            status: 'fail',
-            errors: [{ msg: "Invalid day in availability" }]
-          });
+          return res.status(400).json({ status: 'fail', errors: [{ msg: "Invalid day in availability" }] });
         }
 
-        if (
-          dayjs(slot.startTime, 'HH:mm').isAfter(dayjs(slot.endTime, 'HH:mm'))
-        ) {
-          return res.status(400).json({
-            status: 'fail',
-            errors: [{ msg: "Start time must be before end time" }]
-          });
+        if (dayjs(slot.startTime, 'HH:mm').isAfter(dayjs(slot.endTime, 'HH:mm'))) {
+          return res.status(400).json({ status: 'fail', errors: [{ msg: "Start time must be before end time" }] });
         }
       }
 
-      updates['availability'] = availability;
+      updates['availability'] = value; 
+    }
 
-    } else if (req.body[field]) {
-      updates[field] = sanitizeInput(req.body[field]);
+    else if (typeof value === 'string' || typeof value === 'number') {
+      updates[field] = sanitizeInput(value);
     }
   }
 
@@ -182,29 +159,31 @@ const updateDoctorProfile = asyncHandler(async (req, res) => {
     { new: true, runValidators: true }
   );
 
+  if (!updatedDoctor) {
+    return res.status(404).json({ status: 'fail', message: 'Doctor profile not found' });
+  }
+
   await AuditLog.create({
     action: 'Doctor Profile Updated',
     performedBy: doctorId,
     details: updates,
   });
 
-  res.status(200).json({ message: "Profile updated", doctor: updatedDoctor });
+  res.status(200).json({ status: 'success', message: "Profile updated", doctor: updatedDoctor });
 });
 
 const getNearbyDoctors = async (req, res) => {
     try {
         const { lat, lng, radius = 10 } = req.query;
+
         if (!lat || !lng) {
-            return res.status(400).json({
-                status: 'fail',
-                message: 'Latitude and Longitude are required.',
-            });
+            return res.status(400).json({ status: 'fail', message: 'Latitude and Longitude are required.' });
         }
-        
-        const distanceInMeters = radius * 1000; // convert km to meters
-        
+
+        const distanceInMeters = radius * 1000; // km to meters
+
         const doctors = await DoctorProfile.find({
-            location: {
+            clinicLocation: {
                 $near: {
                     $geometry: {
                         type: 'Point',
@@ -219,55 +198,117 @@ const getNearbyDoctors = async (req, res) => {
             select: 'name email username',
         });
 
-        // filter out entries with no populated user (not matching criteria)
-        const filteredDoctors = doctors.filter((doc) => doc.userId);
-        
+        const filteredDoctors = doctors.filter(doc => doc.userId);
+
         res.status(200).json({
             status: 'success',
             results: filteredDoctors.length,
             doctors: filteredDoctors,
         });
     } catch (error) {
-        console.error('Geo error:', error);
+        console.error('Geo search error:', error);
         res.status(500).json({ status: 'fail', message: 'Geo search failed' });
     }
 };
 
-const searchDoctors = async (req, res) => {
+const searchDoctors = asyncHandler(async (req, res) => {
     try {
         const { specialty, clinicLocation, name } = req.query;
 
-        const query = {
+        const userQuery = {
             role: 'doctor',
             verificationStatus: 'Verified',
             isBlocked: false,
         };
-        
+
+        if (name) userQuery.name = { $regex: name, $options: 'i' };
+
+        let doctors = await User.find(userQuery)
+            .select('-password -otpToken -recoveryCodes')
+            .populate({
+                path: 'doctorProfile',
+                select: 'specialty bio clinicLocation phone rating experience availability fees',
+            });
+
         if (specialty) {
-            query['DoctorProfile.specialty'] = { $regex: specialty, $options: 'i' };
+            doctors = doctors.filter(doc =>
+                doc.doctorProfile?.specialty?.toLowerCase().includes(specialty.toLowerCase())
+            );
         }
-        
-        if (name) {
-            query['name'] = { $regex: name, $options: 'i' };
-        }
-        
+
         if (clinicLocation) {
-            query['DoctorProfile.clinicLocation'] = { $regex: clinicLocation, $options: 'i' };
+            doctors = doctors.filter(doc =>
+                doc.doctorProfile?.clinicLocation &&
+                doc.doctorProfile.clinicLocation.type === 'Point' &&
+                doc.doctorProfile.clinicLocation.coordinates.join(',').includes(clinicLocation)
+            );
         }
-        
-        const doctors = await User.find(query).select('-password -otpToken').populate('doctorProfile');
-        
-        res.json({
+
+        res.status(200).json({
             status: 'success',
             results: doctors.length,
             doctors,
         });
-    
+
     } catch (error) {
+        console.error('Doctor search error:', error);
         res.status(500).json({ status: 'error', message: error.message });
     }
+});
+
+
+const getPatientHealthSummary = async (req, res) => {
+  try {
+    const patientId = await User.findOne({ _id: req.params.id, role: 'user' });
+
+    const patient = await User.findById(patientId);
+    if (!patient || patient.role !== 'user') {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    const logs = await HealthLog.find({ userId: patientId }).sort({ date: -1 });
+    const latestLog = logs[0] || null;
+
+    const totalLogs = logs.length;
+    const avgWeight = totalLogs ? logs.reduce((sum, log) => sum + (log.weight || 0), 0) / totalLogs : null;
+    const avgHeartRate = totalLogs ? logs.reduce((sum, log) => sum + ((log.vitals?.heartRate) || 0), 0) / totalLogs : null;
+    const avgTemp = totalLogs ? logs.reduce((sum, log) => sum + ((log.vitals?.temperature) || 0), 0) / totalLogs : null;
+
+    let avgBP = null;
+    if (totalLogs) {
+      const bpValues = logs
+        .filter(log => log.vitals?.bloodPressure)
+        .map(log => {
+          const [systolic, diastolic] = log.vitals.bloodPressure.split('/').map(Number);
+          return { systolic, diastolic };
+        });
+      if (bpValues.length) {
+        avgBP = {
+          systolic: bpValues.reduce((sum, bp) => sum + bp.systolic, 0) / bpValues.length,
+          diastolic: bpValues.reduce((sum, bp) => sum + bp.diastolic, 0) / bpValues.length,
+        };
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      patient: { _id: patient._id, name: patient.name, email: patient.email },
+      summary: {
+        latestLog,
+        averages: {
+          weight: avgWeight,
+          heartRate: avgHeartRate,
+          temperature: avgTemp,
+          bloodPressure: avgBP
+        },
+        totalLogs
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Failed to get patient health summary' });
+  }
 };
 
-
-module.exports = { uploadDocument, getPublicDoctors, updateDoctorProfile, getNearbyDoctors, searchDoctors };
-
+module.exports = { uploadDocument, getPublicDoctors, updateDoctorProfile, getNearbyDoctors, searchDoctors, getPatientHealthSummary };

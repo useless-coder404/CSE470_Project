@@ -11,7 +11,7 @@ const auditLogSchema = new mongoose.Schema({
         required: true,
     },
     details: {
-        type: Object, // Can hold dynamic info
+        type: Object,
         default: {},
     },
     createdAt: {

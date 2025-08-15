@@ -10,11 +10,11 @@ const prescriptionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'user',
   },
-  fileUrl: { // URL or path of uploaded file
+  fileUrl: { // Uploaded file path
     type: String,
     required: true,
   },
-  description: String, // optional user notes or extracted text later
+  description: String, // Notes
   uploadedAt: {
     type: Date,
     default: Date.now,

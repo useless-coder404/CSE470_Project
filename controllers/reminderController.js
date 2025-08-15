@@ -5,14 +5,7 @@ const createReminder = async (req, res) => {
     try {
         const { medicineName, dosage, time, repeat, notes } = req.body;
 
-        const reminder = new Reminder({
-            userId: req.user._id,
-            medicineName,
-            dosage,
-            time,
-            repeat,
-            notes,
-        });
+        const reminder = new Reminder({ userId: req.user._id, medicineName, dosage, time, repeat, notes, });
 
         await reminder.save();
 
