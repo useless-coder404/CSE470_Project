@@ -8,6 +8,8 @@ const doctorRouter = require('./routes/doctorRoutes');
 const adminRouter = require('./routes/adminRoutes');
 const userRouter = require('./routes/userRoutes');
 const notifyRouter = require('./routes/notificationRoutes');
+const aiRouter = require('./routes/aiRoutes');
+
 
 dotenv.config();
 const app = express();
@@ -19,7 +21,6 @@ app.use(cors({
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-
 app.use(express.json()); // to parse JSON request bodies
 app.use(cookieParser());
 
@@ -28,6 +29,7 @@ app.use('/api/doctor', doctorRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/user', userRouter);
 app.use('/api/notifications', notifyRouter);
+app.use('/api/ai', aiRouter);
 
 
 app.use((err, req, res, next) => {
@@ -35,18 +37,8 @@ app.use((err, req, res, next) => {
   res.status(500).send({ message: 'Something broke!' });
 });
 
-//Need to Remove 
-app.get('/api/test', (req, res) => {
-  res.json({ message: "API is working" });
-});
-
-app.get("/api/ping", (req, res) => {
-  res.status(200).json({ message: "Pong! Server is working" });
-});
-
 app.get("/", (req, res) => {
   res.send("Welcome to the Health Assistant API");
 });
-
 
 module.exports = app;

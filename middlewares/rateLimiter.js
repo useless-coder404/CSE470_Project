@@ -43,4 +43,17 @@ const verify2FALimiter = rateLimit({
     legacyHeaders: false,
 });
 
-module.exports = { loginLimiter, otpLimiter, verify2FALimiter, registerLimiter, searchLimiter };
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5,               // max 5 requests per minute
+  message: 'Too many AI requests. Please try again later.'
+});
+
+const emergencyLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 3,
+  message: 'Too many emergency requests. Please try again later.'
+});
+
+
+module.exports = { loginLimiter, otpLimiter, verify2FALimiter, registerLimiter, searchLimiter, aiLimiter, emergencyLimiter };

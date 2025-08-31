@@ -13,6 +13,4 @@ const logAction = async (action, userId, details = {}) => {
   });
 };
 
-module.exports = {
-  logAction
-};
+module.exports = { logAction };

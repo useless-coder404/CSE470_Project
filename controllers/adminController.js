@@ -2,6 +2,7 @@ const User = require('../models/User');
 const DoctorProfile = require("../models/DoctorProfile");
 const AuditLog = require('../models/AuditLog');
 const sendEmail = require('../utils/sendEmail');
+const Hospital = require('../models/Hospital');
 
 const getPendingDoctors = async (req, res) => {
     try {
@@ -197,5 +198,28 @@ const sendNotification = async (req, res) => {
     }
 };
 
+const addHospital = async (req, res) => {
+  try {
+    const { name, address, phone, email, lat, lng } = req.body;
+
+    if (!name || !lat || !lng) {
+      return res.status(400).json({ message: 'Hospital name and coordinates are required' });
+    }
+
+    const hospital = await Hospital.create({
+      name,
+      address,
+      phone,
+      email,
+      location: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] }
+    });
+
+    res.status(201).json({ status: 'success', hospital });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Failed to add hospital' });
+  }
+};
+
 module.exports = { getPendingDoctors, verifyDoctor, getAllUsers, getAllDoctors, 
-    blockUser, unblockUser, deleteUser, auditLog, sendNotification };
+    blockUser, unblockUser, deleteUser, auditLog, sendNotification, addHospital };

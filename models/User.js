@@ -32,6 +32,18 @@ const userSchema = new mongoose.Schema(
         contact: {
             type: String
         },
+        // Emergency contact stored on user
+        emergencyContact: {
+            name: { type: String },
+            phone: { type: String },
+            email: { type: String },
+            relation: { type: String }
+        },
+        // assigned doctor user id
+        assignedDoctor: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
         isEmailVerified: { 
             type: Boolean, 
             default: false 

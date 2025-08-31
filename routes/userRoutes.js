@@ -6,11 +6,12 @@ const { createReminder, getReminders, updateReminder, deleteReminder } = require
 const { uploadPrescriptionController, extractPrescriptionText } = require('../controllers/prescriptionController');
 const { bookAppointment, rescheduleAppointment, cancelAppointment } = require('../controllers/appointmentController');
 const { createHealthLog, getHealthLogs, getHealthLog, updateHealthLog, deleteHealthLog } = require('../controllers/healthLogController');
+const { triggerEmergency } = require('../controllers/emergencyController');
 const { protect, restrictTo } = require('../middlewares/authMiddleware');
 const { uploadPrescription } = require('../middlewares/multer');
 const { sanitizeProfileUpdate, sanitizeHealthLog, sanitizeReminder } = require('../middlewares/sanitizeMiddleware');
 const twoFAEnforce = require('../middlewares/twoFAEnforce');
-const { verify2FALimiter } = require('../middlewares/rateLimiter');
+const { verify2FALimiter, emergencyLimiter } = require('../middlewares/rateLimiter');
 const validationHandler = require('../middlewares/validationHandler');
 
 //User
@@ -42,5 +43,8 @@ userRouter.delete('/delete-healthlog/:id', protect, restrictTo('user'), deleteHe
 userRouter.get('/get-healthlogs', protect, restrictTo('user', 'doctor'), getHealthLogs);
 userRouter.get('/get-healthlog/:id', protect, restrictTo('user', 'doctor'), getHealthLog);
 userRouter.get('/get-health-summary', protect, restrictTo('user', 'doctor'), getHealthSummary);
+
+// Emergency
+userRouter.post('/emergency', protect, emergencyLimiter, triggerEmergency);
 
 module.exports = userRouter; 

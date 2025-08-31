@@ -1,7 +1,7 @@
 const express = require('express');
 const adminRouter = express.Router();
 const { getPendingDoctors, verifyDoctor, getAllUsers, getAllDoctors, blockUser, 
-    unblockUser, deleteUser, auditLog, sendNotification } = require('../controllers/adminController');
+    unblockUser, deleteUser, auditLog, sendNotification, addHospital } = require('../controllers/adminController');
 const { protect, restrictTo } = require('../middlewares/authMiddleware');
 
 adminRouter.use(protect, restrictTo('admin'));
@@ -25,5 +25,8 @@ adminRouter.get("/logs", auditLog);
 
 //Send Notification
 adminRouter.post('/notify', sendNotification);
+
+// Add Hospital (Admin Only)
+adminRouter.post('/hospital', protect, restrictTo('admin'), addHospital);
 
 module.exports = adminRouter;
