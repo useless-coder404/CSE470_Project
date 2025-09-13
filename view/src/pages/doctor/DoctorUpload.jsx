@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Box, Typography, CircularProgress, Alert } from "@mui/material";
 import Sidebar from "../../components/user/Sidebar";
-import Header from "../../components/user/Header";
+import Header from "../../components/doctor/Header";
 import Footer from "../../components/home/Footer";
 import UploadDocumentForm from "../../components/doctor/UploadDocumentForm";
 import { getDoctorStatus } from "../../services/doctor/doctorDocumentService";
