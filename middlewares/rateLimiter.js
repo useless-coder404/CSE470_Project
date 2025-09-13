@@ -55,5 +55,10 @@ const emergencyLimiter = rateLimit({
   message: 'Too many emergency requests. Please try again later.'
 });
 
+const chatLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 min
+    max: 10, // max 10 requests per user per minute
+    message: 'Too many chat requests, please try again later'
+});
 
-module.exports = { loginLimiter, otpLimiter, verify2FALimiter, registerLimiter, searchLimiter, aiLimiter, emergencyLimiter };
+module.exports = { loginLimiter, otpLimiter, verify2FALimiter, registerLimiter, searchLimiter, aiLimiter, emergencyLimiter, chatLimiter };

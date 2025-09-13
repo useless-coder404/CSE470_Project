@@ -49,10 +49,8 @@ const rescheduleAppointment = async (req, res) => {
         let appointment;
 
         if(userRole === 'user') {
-            // User can reschedule
             appointment = await Appointment.findOne({ _id: id, patientId: userId });
         } else if(userRole === 'doctor') {
-            // Doctor can reschedule
             appointment = await Appointment.findOne({ _id: id, doctorId: userId });
         }
 
@@ -121,6 +119,20 @@ const cancelAppointment = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
+
+const getMyAppointments = async (req, res) => {
+  try {
+    const appointments = await Appointment.find({ patientId: req.user._id })
+      .populate("doctorId", "name specialization")
+      .sort({ date: -1 });
+
+    res.json({ success: true, results: appointments });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch appointments" });
+  }
+};
+
 
 const getDoctorAppointments = async (req, res) => {
     try {
@@ -203,4 +215,4 @@ const cancelAppointmentByDoctor = async (req, res) => {
     }
 };
 
-module.exports = { bookAppointment, rescheduleAppointment, cancelAppointment, getDoctorAppointments, markComplete, cancelAppointmentByDoctor };
+module.exports = { bookAppointment, rescheduleAppointment, cancelAppointment, getMyAppointments, getDoctorAppointments, markComplete, cancelAppointmentByDoctor };

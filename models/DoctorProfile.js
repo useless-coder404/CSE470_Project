@@ -8,6 +8,10 @@ const doctorProfileSchema = new mongoose.Schema(
             required: true, 
             unique: true 
         },
+        isDoctorVerified: { 
+            type: Boolean, 
+            default: false 
+        },
         documents: [
             {
             filename: String,

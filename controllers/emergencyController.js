@@ -23,7 +23,6 @@ const triggerEmergency = async (req, res) => {
       relation: sanitizeInput(c.relation || '')
     }));
 
-    // find nearest hospital from DB
     const hospital = await findNearestHospital(location.lat, location.lng, 20); // 20km max
 
     const eventDoc = new EmergencyEvent({
@@ -43,7 +42,7 @@ const triggerEmergency = async (req, res) => {
       details: { eventId: eventDoc._id, hospitalId: hospital ? hospital._id : null }
     });
 
-    // Compose alert message
+    //alert message
     const title = 'Emergency Alert from Health Assistant';
     const composedMessage = [
       `Emergency reported by userId: ${userId}`,
@@ -51,10 +50,9 @@ const triggerEmergency = async (req, res) => {
       `Message: ${cleanMessage}`
     ].join('\n');
 
-    // target recipients
     const recipients = [];
 
-    // nearest hospital (if found)
+    // nearest hospital
     if (hospital) {
       recipients.push({
         name: hospital.name,
@@ -64,7 +62,6 @@ const triggerEmergency = async (req, res) => {
       });
     }
 
-    // patient's assigned doctor (if present)
     const user = await User.findById(userId).populate('doctorProfile');
     if (user && user.doctorProfile) {
       const docUser = await User.findOne({ doctorProfile: user.doctorProfile._id, role: 'doctor' });

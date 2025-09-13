@@ -6,51 +6,66 @@ const DoctorProfile = require("../models/DoctorProfile");
 const User = require("../models/User");
 const AuditLog = require('../models/AuditLog');
 const HealthLog = require('../models/HealthLog');
+const Appointment = require("../models/Appointment")
+const Notification = require('../models/Notification');
 
 
 const uploadDocument = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const file = req.file;
+  try {
+    const userId = req.user.id;
 
-        console.log("Received file:", file);
+    const files = [];
+    if (req.files.idCard) files.push(req.files.idCard[0]);
+    if (req.files.certificate) files.push(req.files.certificate[0]);
 
-        if (!file) {
-            return res.status(400).json({ message: "No document uploaded" });
-        }
+    console.log("Received files:", files);
 
-        let profile = await DoctorProfile.findOne({ userId: userId });
-        
-        if (!profile) {
-            profile = new DoctorProfile({ 
-              userId: userId, 
-              documents: [],
-              clinicLocation: { type: 'Point', coordinates: [0, 0] }
-            });
-        }
-        
-        // Add uploaded document
-        profile.documents.push({
-            filename: file.filename,
-            filetype: file.mimetype,
-            status: "Pending"
-        });
-        
-        await profile.save();
-        
-        // Update User: set verificationStatus = Pending
-        await User.findByIdAndUpdate(userId, { verificationStatus: "Pending" });
-        
-        // After creating DoctorProfile
-        await User.findByIdAndUpdate(userId, { doctorProfile: profile._id });
-
-
-        
-        res.status(200).json({ message: "Document uploaded and pending verification" });
-    
-    } catch (err) {
-        res.status(500).json({ message: "Server error", error: err.message });
+    if (!files.length) {
+      return res.status(400).json({ message: "No documents uploaded" });
     }
+
+    let profile = await DoctorProfile.findOne({ userId });
+    if (!profile) {
+      profile = new DoctorProfile({
+        userId,
+        documents: [],
+        clinicLocation: { type: "Point", coordinates: [0, 0] },
+      });
+    }
+
+    files.forEach((file) => {
+      profile.documents.push({
+        filename: file.filename,
+        filetype: file.mimetype,
+        status: "Pending",
+      });
+    });
+
+    await profile.save();
+
+    await User.findByIdAndUpdate(userId, {
+      verificationStatus: "Pending",
+      docsUploaded: true,
+      doctorProfile: profile._id,
+    });
+
+    await Notification.create({
+      recipientId: userId,
+      title: "Doctor Verification",  
+      role: "doctor",                            
+      message: "New doctor uploaded documents. Pending verification.",                        
+      type: "system",
+    });
+
+
+    res.status(200).json({
+      message: "Documents uploaded successfully!",
+      verificationStatus: "Pending",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
 };
 
 const getPublicDoctors = asyncHandler(async (req, res) => {
@@ -67,7 +82,6 @@ const getPublicDoctors = asyncHandler(async (req, res) => {
             userQuery.name = { $regex: name, $options: 'i' };
         }
 
-        // Find doctors and populate doctorProfile
         let doctors = await User.find(userQuery)
             .select('-password -otpToken -twoFASecret -recoveryCodes ')
             .populate({
@@ -76,7 +90,6 @@ const getPublicDoctors = asyncHandler(async (req, res) => {
                 match: specialty ? { specialty: { $regex: specialty, $options: 'i' } } : {},
             });
 
-        // Filter out doctors without a profile or specialty mismatch
         doctors = doctors.filter(doc => doc.doctorProfile);
 
         res.status(200).json({
@@ -256,7 +269,6 @@ const searchDoctors = asyncHandler(async (req, res) => {
     }
 });
 
-
 const getPatientHealthSummary = async (req, res) => {
   try {
     const patientId = await User.findOne({ _id: req.params.id, role: 'user' });
@@ -311,4 +323,93 @@ const getPatientHealthSummary = async (req, res) => {
   }
 };
 
-module.exports = { uploadDocument, getPublicDoctors, updateDoctorProfile, getNearbyDoctors, searchDoctors, getPatientHealthSummary };
+const searchPatients = async (req, res) => {
+  try {
+    const { name } = req.query;
+    const regex = new RegExp(name, "i");
+    const patients = await User.find({ name: regex }).select("_id name email");
+    res.json({ patients });
+  } catch (err) {
+    res.status(500).json({ message: "Search failed" });
+  }
+};
+
+const getDashboardStats = async (req, res) => {
+  try {
+    const doctorId = req.params.id;
+
+    const totalPatients = await Appointment.distinct("patient", { doctor: doctorId }).count();
+    const upcomingAppointments = await Appointment.countDocuments({
+      doctor: doctorId,
+      status: "scheduled",
+      date: { $gte: new Date() },
+    });
+    const completedAppointments = await Appointment.countDocuments({
+      doctor: doctorId,
+      status: "completed",
+    });
+    const pendingVerifications = await Appointment.countDocuments({
+      doctor: doctorId,
+      status: "pending_verification",
+    });
+
+    res.json({
+      totalPatients,
+      upcomingAppointments,
+      completedAppointments,
+      pendingVerifications,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch dashboard stats" });
+  }
+};
+
+const getRecentPatients = async (req, res) => {
+  try {
+    const doctorId = req.user._id;
+    const appointments = await Appointment.find({ doctor: doctorId })
+      .sort({ date: -1 })
+      .limit(5)
+      .populate("patient", "_id name");
+
+    const patients = appointments.map((appt) => ({
+      _id: appt.patient._id,
+      name: appt.patient.name,
+      lastAppointment: appt.date,
+      healthSummary: appt.patient.healthSummary || {},
+    }));
+
+    res.json({ patients });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch recent patients" });
+  }
+};
+
+const getDoctorNotifications = async (req, res) => {
+  try {
+    const notifications = await Notification.find({ userId: req.user._id }) // req.user is doctor
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, notifications });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Error fetching notifications' });
+  }
+};
+
+const markDoctorNotificationAsRead = async (req, res) => {
+  try {
+    await Notification.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id },
+      { isRead: true }
+    );
+    res.json({ success: true, message: 'Marked as read' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Error updating notification' });
+  }
+};
+
+module.exports = { uploadDocument, getPublicDoctors, updateDoctorProfile, getNearbyDoctors, searchDoctors, 
+  getPatientHealthSummary, searchPatients, getDashboardStats, getRecentPatients, getDoctorNotifications, markDoctorNotificationAsRead };

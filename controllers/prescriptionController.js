@@ -6,10 +6,10 @@ const fs = require("fs");
 const { createNotification } = require("./notificationController");
 const Prescription = require("../models/Prescription");
 
-
 const uploadPrescriptionController = async (req, res) => {
   try {
     const userId = req.user._id;
+    const userRole = req.user.role || "user"; // default to user
     const { description } = req.body;
 
     if (!req.file) {
@@ -26,13 +26,14 @@ const uploadPrescriptionController = async (req, res) => {
 
     await newPrescription.save();
 
-    // Send user notification
-    await createNotification(
-      userId,
-      "Prescription Uploaded",
-      "Your prescription has been uploaded successfully.",
-      "prescription"
-    );
+    // Send notification to the user
+    await createNotification({
+      recipientId: userId,
+      role: userRole,
+      title: "Prescription Uploaded",
+      message: "Your prescription has been uploaded successfully.",
+      type: "prescription"
+    });
 
     res.status(201).json({
       status: "success",
@@ -47,34 +48,47 @@ const uploadPrescriptionController = async (req, res) => {
   }
 };
 
+const getPrescriptionsController = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const prescriptions = await Prescription.find({ patientId: userId }).sort({ createdAt: -1 });
+
+    res.status(200).json({ prescriptions });
+  } catch (error) {
+    console.error("Get prescriptions error:", error);
+    res.status(500).json({ message: "Server error while fetching prescriptions" });
+  }
+};
+
 const extractPrescriptionText = async (req, res) => {
   let tempFilePath = null;
   try {
     let imagePath = "";
 
-    // Uploaded file
     if (req.file) {
       const file = req.file;
+      console.log("Uploaded file:", file.path, file.mimetype);
 
       if (file.mimetype === "application/pdf") {
         const options = {
-          density: 150,
+          density: 300,          
           saveFilename: `ocr_${Date.now()}`,
           savePath: "./uploads/temp",
           format: "png",
-          width: 1200,
-          height: 1600,
+          width: 2000,
+          height: 2000,
         };
         fs.mkdirSync(options.savePath, { recursive: true });
 
         const convert = fromPath(file.path, options);
         const result = await convert(1); // first page
         imagePath = result.path;
+        console.log("PDF converted to image at:", imagePath);
       } else {
         imagePath = file.path;
       }
 
-    // URL file
     } else if (req.query.url) {
       const url = req.query.url;
       const extension = path.extname(url).split("?")[0] || ".jpg";
@@ -85,8 +99,10 @@ const extractPrescriptionText = async (req, res) => {
         const response = await axios.get(url, { responseType: "arraybuffer" });
         fs.writeFileSync(tempFilePath, response.data);
         imagePath = tempFilePath;
+        console.log("Downloaded URL to temp file:", imagePath);
       } else if (fs.existsSync(url)) {
         imagePath = url;
+        console.log("Using existing local file:", imagePath);
       } else {
         return res.status(400).json({ message: "Invalid file path or URL provided" });
       }
@@ -95,19 +111,31 @@ const extractPrescriptionText = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded or URL provided" });
     }
 
-    // OCR
-    const { data: { text } } = await Tesseract.recognize(imagePath, "eng");
+    if (!fs.existsSync(imagePath)) {
+      return res.status(400).json({ message: "File does not exist at path: " + imagePath });
+    }
 
-    // Cleanup temp file
-    if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    //ocr proccess
+    console.log("Starting OCR on:", imagePath);
+    const { data: { text } } = await Tesseract.recognize(imagePath, "eng", {
+      logger: m => console.log("Tesseract:", m),
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,()/- ",
+    });
 
-    res.status(200).json({ text });
+    console.log("OCR Result:", text.trim());
+
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      console.log("Deleted temp file:", tempFilePath);
+    }
+
+    return res.status(200).json({ text: text.trim() });
 
   } catch (error) {
     console.error("OCR error:", error);
     if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    res.status(500).json({ message: "OCR failed", error: error.message });
+    return res.status(500).json({ message: "OCR failed", error: error.message });
   }
 };
 
-module.exports = { uploadPrescriptionController, extractPrescriptionText, };
+module.exports = { uploadPrescriptionController, getPrescriptionsController, extractPrescriptionText };

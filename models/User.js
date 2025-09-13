@@ -2,134 +2,59 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
-    {
-        name: { 
-            type: String, 
-            required: true 
-        },
-        username: { 
-            type: String, 
-            required: true, 
-            unique: true 
-        },
-        email: { 
-            type: String, 
-            required: true, 
-            unique: true 
-        },
-        password: { 
-            type: String, 
-            required: true 
-        },
-        age: {
-            type: Number
-        },
-        gender: {
-            type: String,
-            enum: ['Male', 'Female', 'Others'],
-            default: null
-        },
-        contact: {
-            type: String
-        },
-        // Emergency contact stored on user
-        emergencyContact: {
-            name: { type: String },
-            phone: { type: String },
-            email: { type: String },
-            relation: { type: String }
-        },
-        // assigned doctor user id
-        assignedDoctor: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        isEmailVerified: { 
-            type: Boolean, 
-            default: false 
-        },
-        role: { type: String, 
-            enum: ['user', 'doctor', 'admin'], 
-            default: 'user' 
-        },
-        otp: {
-            type: String
-        },
-        otpExpiresAt: {
-            type: Date
-        },
-        isVerified: {
-            type: Boolean,
-            default: false
-        },
-        verificationStatus: {
-            type: String,
-            enum: ['None', 'Pending', 'Verified', 'Rejected'],
-            default: 'None',
-        },
-        isDoctorVerified: { 
-            type: Boolean, 
-            default: false 
-        },
-        isBlocked: { 
-            type: Boolean, 
-            default: false 
-        },
-        isDeleted: {
-            type: Boolean,
-            default: false
-        },
-        deletedAt: Date,
-        new: {
-            type: Boolean,
-            default: false
-        },
-        runValidators: {
-            type: Boolean,
-            default: false
-        },
-        doctorProfile: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "DoctorProfile",
-        },
-        recoveryCodes: [
-            {
-                code: String, 
-                used: { type: Boolean, default: false }
-            }
-        ],
-        isTwoFAEnabled: { 
-            type: Boolean, 
-            default: false 
-        },
-        isTwoFAVerified: {
-            type: Boolean,
-            default: false
-        },
-        twoFAToken: {
-            type: String,
-            default: null
-        },
-        twoFATokenExpires: {
-            type: Date,
-            default: null
-        },
-        twoFASetupPending: {
-            type: Boolean,
-            default: false
-        },
+  {
+    name: { type: String, required: true },
+    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    age: { type: Number },
+    gender: { type: String, enum: ['Male', 'Female', 'Others'], default: null },
+    contact: { type: String },
+    profilePic: { type: String, default: null },
+    birthday: { type: String, default: "" },
+    address: { type: String, default: "" },
+    bloodGroup: { type: String, default: "" },
+    intro: { type: String, default: "" },
+    emergencyContact: {
+      name: { type: String },
+      phone: { type: String },
+      email: { type: String },
+      relation: { type: String },
     },
 
-    { 
-        timestamps: true 
-    }
+    assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    isEmailVerified: { type: Boolean, default: false },
+    role: { type: String, enum: ['user', 'doctor', 'admin'], default: 'user' },
+    otp: { type: String },
+    otpExpiresAt: { type: Date },
+    isVerified: { type: Boolean, default: false },
+    verificationStatus: { type: String, enum: ['None', 'Pending', 'Verified', 'Rejected'], default: 'None' },
+    docsUploaded: { type: Boolean, default: false },
+    isBlocked: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: Date,
+    new: { type: Boolean, default: false },
+    doctorProfile: { type: mongoose.Schema.Types.ObjectId, ref: "DoctorProfile" },
+
+    recoveryCodes: [
+      {
+        code: String,
+        used: { type: Boolean, default: false },
+      }
+    ],
+
+    isTwoFAEnabled: { type: Boolean, default: false },
+    isTwoFAVerified: { type: Boolean, default: false },
+    twoFAToken: { type: String, default: null },
+    twoFATokenExpires: { type: Date, default: null },
+    twoFASetupPending: { type: Boolean, default: false },
+  },
+  { timestamps: true }
 );
 
+// Password hashing
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    return next();
-  }
-
+  if (!this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -140,9 +65,14 @@ userSchema.pre('save', async function (next) {
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {
-    console.log("Comparing passwords...");
-    return await bcrypt.compare(candidatePassword, this.password);
+  return await bcrypt.compare(candidatePassword, this.password);
 };
+
+userSchema.virtual('completion').get(function () {
+  const fields = ['name','username','email','age','gender','contact','birthday','address','bloodGroup','intro','profilePic'];
+  const filled = fields.filter(f => this[f] && this[f] !== "");
+  return Math.round((filled.length / fields.length) * 100);
+});
 
 userSchema.methods.toJSON = function () {
   const user = this.toObject();

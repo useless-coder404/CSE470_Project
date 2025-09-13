@@ -20,7 +20,6 @@ Return your answer in a single concise paragraph.`;
 
     const diagnosis = await callLLM(req.user._id, prompt, 'diagnosis');
 
-    // Save to AIInteractionLog
     await AIInteractionLog.create({
       userId: req.user._id,
       input: prompt,
@@ -49,7 +48,6 @@ Continue the conversation naturally, ask follow-up questions if needed, and give
 
     const reply = await callLLM(req.user._id, prompt, 'chat');
 
-    // Save to AIInteractionLog
     await AIInteractionLog.create({
       userId: req.user._id,
       input: prompt,
@@ -78,7 +76,6 @@ Keep it short and easy to understand.`;
 
     const simple = await callLLM(req.user._id, prompt, 'simplifier');
 
-    // Save to AIInteractionLog
     await AIInteractionLog.create({
       userId: req.user._id,
       input: prompt,
@@ -107,7 +104,6 @@ Include necessary documents, medicines, tests, and any preparation tips.`;
 
     const checklist = await callLLM(req.user._id, prompt, 'prep');
 
-    // Save to AIInteractionLog
     await AIInteractionLog.create({
       userId: req.user._id,
       input: prompt,
@@ -125,7 +121,7 @@ Include necessary documents, medicines, tests, and any preparation tips.`;
 const viewAILogs = async (req, res) => {
   try {
     const logs = await AIInteractionLog.find()
-      .select('-userId')  // anonymized for admin
+      .select('-userId')
       .sort({ createdAt: -1 });
 
     res.json(logs);

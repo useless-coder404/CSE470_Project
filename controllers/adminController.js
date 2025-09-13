@@ -3,108 +3,157 @@ const DoctorProfile = require("../models/DoctorProfile");
 const AuditLog = require('../models/AuditLog');
 const sendEmail = require('../utils/sendEmail');
 const Hospital = require('../models/Hospital');
+const SystemSettings = require('../models/SystemSetting');
+const ChatLog = require('../models/ChatLog');
+
 
 const getPendingDoctors = async (req, res) => {
-    try {
-        const pendingDoctors = await User.find({
-            role: 'doctor',
-            verificationStatus: 'Pending'
-        }).populate('doctorProfile').select('-password -otp -otpExpiresAt');
-
-        res.status(200).json({
-            status: 'success',
-            results: pendingDoctors.length,
-            doctors: pendingDoctors
-        });
-
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-const verifyDoctor = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { action } = req.body;
-        
-        if (!['approve', 'reject'].includes(action)) {
-            return res.status(400).json({ message: 'Invalid action' });
-        }
-        
-        const doctor = await User.findById(id);
-        if (!doctor || doctor.role !== 'doctor') {
-            return res.status(404).json({ message: 'Doctor not found' });
-        }
-        
-        const profile = await DoctorProfile.findOne({ userId: id });
-        if (!profile) {
-            return res.status(404).json({ message: 'Doctor profile not found' });
-        }
-        
-        if (action === 'approve') {
-            doctor.verificationStatus = 'Verified';
-            profile.credentials.status = 'Verified';
-            profile.documents.forEach(doc => (doc.status = 'Verified'));
-        } else {
-            doctor.verificationStatus = 'Rejected';
-            profile.credentials.status = 'Rejected';
-            profile.documents.forEach(doc => (doc.status = 'Rejected'));
-        }
-        
-        await doctor.save();
-        await profile.save();
-
-        await AuditLog.create({
-            action: `Doctor Verification ${action === "approve" ? "Approved" : "Rejected"}`,
-            performedBy: req.user._id,
-            details: { doctorId: doctor._id, doctorEmail: doctor.email },
-        });
-
-        //Send Email
-        const emailSubject = action === 'approve' ? 'Doctor Verification Approved' : 'Doctor Verification Rejected';
-        const emailBody = `Hello ${doctor.name}, your verification status has been updated to: ${doctor.verificationStatus}.`;
-        const html = `<p>Hello <strong>${doctor.name}<strong>, your verification status has been updated to: <strong>${doctor.verificationStatus}<strong>.`;
-        
-        await sendEmail({
-            to: doctor.email,
-            subject: emailSubject,
-            text: emailBody,
-            html: html,
-        });
-        
-        res.status(200).json({ status: 'success', message: `Doctor verification ${action}d.` });
+  try {
+    const { exact } = req.query;
     
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+    let query = { role: "doctor", verificationStatus: "Pending" };
+
+    if (exact) {
+      query.$or = [
+        { name: exact },
+        { email: exact }
+      ];
     }
+
+    const doctors = await User.find(query).select("-password").populate("doctorProfile");
+    res.status(200).json({
+      status: "success",
+      results: doctors.length,
+      doctors,
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
 };
+
 
 const getAllUsers = async (req, res) => {
-    try {
-        const users = await User.find({ role: "user" }).select("-password");
-        res.status(200).json({
-            status: "success",
-            results: users.length,
-            users,
-        });
-    } catch (error) {
-        res.status(500).json({ status: "error", message: error.message });
+  try {
+    const { search, exact } = req.query;
+    let query = { role: "user" };
+
+    if (exact) {
+      query.$or = [
+        { name: exact },   
+        { email: exact }  
+      ];
+    } else if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } }
+      ];
     }
+
+    const users = await User.find(query).select("-password");
+
+    res.status(200).json({
+      status: "success",
+      results: users.length,
+      users,
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
 };
 
 const getAllDoctors = async (req, res) => {
-    try {
-        const doctors = await User.find({ role: "doctor" }).select("-password").populate("doctorProfile");
-        res.status(200).json({
-            status: "success",
-            results: doctors.length,
-            doctors,
-        });
-    } catch (error) {
-        res.status(500).json({ status: "error", message: error.message });
+  try {
+    const { search, exact, verified } = req.query; 
+    let query = { role: "doctor" };
+
+    if (verified === "true") query.isVerified = true;
+
+    if (exact) {
+      query.$or = [
+        { name: exact },   
+        { email: exact }   
+      ];
+    } else if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } }
+      ];
     }
+
+    const doctors = await User.find(query)
+      .select("-password")
+      .populate("doctorProfile");
+
+    res.status(200).json({
+      status: "success",
+      results: doctors.length,
+      doctors,
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
 };
+
+const verifyDoctor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action } = req.body;
+    
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ message: 'Invalid action' });
+    }
+    
+    const doctor = await User.findById(id);
+    if (!doctor || doctor.role !== 'doctor') {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+    
+    const profile = await DoctorProfile.findOne({ userId: id });
+    if (!profile) {
+      return res.status(404).json({ message: 'Doctor profile not found' });
+    }
+    
+    if (action === 'approve') {
+      doctor.verificationStatus = 'Verified';
+      doctor.docsUploaded = true; 
+      profile.credentials.status = 'Verified';
+      profile.isDoctorVerified = true;
+      profile.documents.forEach(doc => (doc.status = 'Verified'));
+    } else {
+      doctor.verificationStatus = 'Rejected';
+      doctor.docsUploaded = false; 
+      profile.credentials.status = 'Rejected';
+      profile.documents.forEach(doc => (doc.status = 'Rejected'));
+    }
+    
+    await doctor.save();
+    await profile.save();
+
+    await AuditLog.create({
+      action: `Doctor Verification ${action === "approve" ? "Approved" : "Rejected"}`,
+      performedBy: req.user._id,
+      details: { doctorId: doctor._id, doctorEmail: doctor.email },
+    });
+
+    const emailSubject = action === 'approve' ? 'Doctor Verification Approved' : 'Doctor Verification Rejected';
+    const emailBody = `Hello ${doctor.name}, your verification status has been updated to: ${doctor.verificationStatus}.`;
+    const html = `<p>Hello <strong>${doctor.name}</strong>, your verification status has been updated to: <strong>${doctor.verificationStatus}</strong>.</p>`;
+    
+    await sendEmail({
+      to: doctor.email,
+      subject: emailSubject,
+      text: emailBody,
+      html: html,
+    });
+    
+    res.status(200).json({ status: 'success', message: `Doctor verification ${action}d.` });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 
 const blockUser = async (req, res) => {
     try {
@@ -221,5 +270,49 @@ const addHospital = async (req, res) => {
   }
 };
 
+
+const getSystemSettings = async (req, res) => {
+    try {
+        let settings = await SystemSettings.findOne();
+        if (!settings) {
+            settings = await SystemSettings.create({});
+        }
+        res.status(200).json(settings);
+    } catch (err) {
+        console.error('Error getting system settings:', err.message);
+        res.status(500).json({ error: 'Failed to get system settings' });
+    }
+};
+
+const updateSystemSettings = async (req, res) => {
+    try {
+        const { voiceInputEnabled, aiChatLogsEnabled } = req.body;
+        let settings = await SystemSettings.findOne();
+        if (!settings) {
+            settings = await SystemSettings.create({});
+        }
+
+        if (voiceInputEnabled !== undefined) settings.voiceInputEnabled = voiceInputEnabled;
+        if (aiChatLogsEnabled !== undefined) settings.aiChatLogsEnabled = aiChatLogsEnabled;
+
+        await settings.save();
+        res.status(200).json(settings);
+    } catch (err) {
+        console.error('Error updating system settings:', err.message);
+        res.status(500).json({ error: 'Failed to update system settings' });
+    }
+};
+
+const viewAIChatLogs = async (req, res) => {
+    try {
+        const logs = await ChatLog.find().sort({ createdAt: -1 }).limit(100); // last 100 entries
+        res.status(200).json(logs);
+    } catch (err) {
+        console.error('Error fetching AI chat logs:', err.message);
+        res.status(500).json({ error: 'Failed to fetch AI chat logs' });
+    }
+};
+
+
 module.exports = { getPendingDoctors, verifyDoctor, getAllUsers, getAllDoctors, 
-    blockUser, unblockUser, deleteUser, auditLog, sendNotification, addHospital };
+    blockUser, unblockUser, deleteUser, auditLog, sendNotification, addHospital, getSystemSettings, updateSystemSettings, viewAIChatLogs };

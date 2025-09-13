@@ -1,208 +1,161 @@
 const asyncHandler = require('express-async-handler');
 const User = require("../models/User");
 const HealthLog = require('../models/HealthLog');
-const AuditLog = require('../models/AuditLog');
-const sanitizeInput = require('../utils/sanitizeInput');
-const generateOTP = require('../utils/generateOTP');
-const generateRecoveryCodes = require('../utils/recoveryCode');
-const sendEmail = require('../utils/sendEmail');
+const Doctor = require("../models/DoctorProfile");
+const { uploadProfilePicture } = require("../middlewares/multer")
 
+const getUserProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select("-password -otp -twoFAToken -twoFATokenExpires");
+  if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-const Appointment = require('../models/Appointment');
-const Reminder = require('../models/Reminder');
-const Prescription = require('../models/Prescription');
+  const profileData = {
+    ...user.toJSON(),
+    completion: user.completion || 0
+  };
+
+  res.status(200).json({ success: true, user: profileData });
+});
+
+const updateUserProfile = asyncHandler(async (req, res) => {
+  const allowedFields = ['name','username','age','gender','contact','birthday','address','bloodGroup','intro'];
+  const updates = {};
+
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) updates[field] = req.body[field];
+  });
+
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user._id,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+
+  res.status(200).json({ success: true, message: "Profile updated", user: updatedUser });
+});
+
+const getHealthSummary = asyncHandler(async (req, res) => {
+  const logs = await HealthLog.find({ userId: req.user._id }).sort({ date: -1 });
+
+  if (!logs.length) return res.status(200).json({
+    success: true,
+    summary: {
+      latestLog: null,
+      averages: { weight: null, bloodPressure: null, heartRate: null, temperature: null },
+      current: { weight: null, bloodPressure: null, heartRate: null, temperature: null },
+      totalLogs: 0
+    }
+  });
+
+  const latestLog = logs[0];
+  const avgWeight = logs.reduce((sum, l) => sum + (l.weight || 0), 0) / logs.length;
+  const avgHR = logs.reduce((sum, l) => sum + (l.vitals?.heartRate || 0), 0) / logs.length;
+  const avgTemp = logs.reduce((sum, l) => sum + (l.vitals?.temperature || 0), 0) / logs.length;
+  const avgBP = logs.reduce((sum, l) => {
+    if (l.vitals?.bloodPressure) {
+      const [sys] = l.vitals.bloodPressure.split('/').map(Number);
+      return sum + (sys || 0);
+    }
+    return sum;
+  }, 0) / logs.length;
+
+  res.status(200).json({
+    success: true,
+    summary: {
+      latestLog,
+      averages: { weight: avgWeight, bloodPressure: avgBP, heartRate: avgHR, temperature: avgTemp },
+      current: {
+        weight: latestLog.weight || null,
+        bloodPressure: latestLog.vitals?.bloodPressure || null,
+        heartRate: latestLog.vitals?.heartRate || null,
+        temperature: latestLog.vitals?.temperature || null
+      },
+      totalLogs: logs.length
+    }
+  });
+});
+
+const uploadProfilePic = [
+  uploadProfilePicture.single('profilePic'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { profilePic: `/uploads/profile-pics/${req.file.filename}` },
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      user
+    });
+  })
+];
+
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    const user = await User.findById(req.user.id).select("+password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) return res.status(401).json({ message: "Current password is incorrect" });
+
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update password" });
+  }
+};
 
 
 const toggleTwoFA = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const user = await User.findById(userId);
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!user) return res.status(404).json({ message: 'User not found.' });
-    
-    // Disable 2FA
-    if (user.isTwoFAEnabled) {
-      user.isTwoFAEnabled = false;
-      user.twoFAToken = null;
-      user.twoFATokenExpires = null;
-      user.twoFASetupPending = false;
-      user.recoveryCodes = [];
-      await user.save();
-
-      await AuditLog.create({
-        action: 'Disabled 2FA',
-        performedBy: user._id,
-        details: { email: user.email }
-      });
-
-      return res.status(200).json({ message: '2FA has been disabled.' });
-
-    } else {
-      // Enable 2FA
-      const otp = generateOTP();
-      const expires = new Date(Date.now() + 10 * 60 * 1000);
-
-      const recoveryCodesRawAndHashed = await generateRecoveryCodes();
-
-      user.twoFAToken = otp;
-      user.twoFATokenExpires = expires;
-      user.twoFASetupPending = true;
-      user.recoveryCodes = recoveryCodesRawAndHashed.map(rc => ({
-        code: rc.hashedCode,
-        used: false
-      }));
-
-      await user.save();
-
-      await AuditLog.create({
-        action: 'Enabled 2FA (pending verification)',
-        performedBy: user._id,
-        details: { email: user.email }
-      });
-
-      await sendEmail({
-        to: user.email,
-        subject: 'Your 2FA Setup OTP',
-        text: `Your OTP is ${otp}. It expires in 10 minutes.`,
-        html: `<p>Your OTP is <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
-      });
-
-      return res.status(200).json({
-        message: '2FA enabled (pending verification). Please check your email for the OTP.',
-        expiresAt: expires,
-        recoveryCodes: recoveryCodesRawAndHashed.map(rc => rc.rawCode),
-      });
-    }
-
-  } catch (err) {
-    console.error('2FA toggle error:', err);
-    return res.status(500).json({ message: 'Error toggling 2FA.' });
-  }
-};
-
-const updateUserProfile = asyncHandler(async (req, res) => {
-    const allowedFields = ['name', 'username', 'age', 'gender', 'contact'];
-    const updates = {};
-
-    allowedFields.forEach(field => {
-        if (req.body[field] !== undefined) {
-            updates[field] = sanitizeInput(req.body[field]);
-        }
-    });
-
-    const updatedUser = await User.findByIdAndUpdate(
-        req.user._id,
-        { $set: updates },
-        { new: true, runValidators: true }
-    );
-
-    // Audit Log entry
-    await AuditLog.create({
-        performedBy: req.user._id,
-        action: 'update_profile',
-        details: { updatedFields: Object.keys(updates) }
-    });
+    user.isTwoFAEnabled = !user.isTwoFAEnabled;
+    await user.save();
 
     res.status(200).json({
-        status: 'success',
-        message: 'Profile updated',
-        user: updatedUser
+      message: `2FA ${user.isTwoFAEnabled ? "enabled" : "disabled"} successfully`,
+      isTwoFAEnabled: user.isTwoFAEnabled
     });
-});
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to toggle 2FA" });
+  }
+};
 
 const deleteAccount = async (req, res) => {
-    try {
-      const userId = req.user._id;
-        
-      const user = await User.findById(req.user.id);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      await User.updateOne(
-        { _id: req.user._id },
-        {
-          $set: {
-            contact: null,
-            verificationStatus: null,
-            isDeleted: true,
-            deletedAt: new Date(),
-            updatedAt: new Date(),
-          }
-        }
-      );
-
-      
-      await AuditLog.create({
-        action: 'User Account Deleted',
-        performedBy: req.user._id,
-        details: { userId: req.user._id }
-
-      });
-      
-      res.status(200).json({ message: 'Account deleted successfully.' });
-    
-    } catch (error) {
-      console.error("Delete Account Error:", error);
-      res.status(500).json({ error: 'Server error during account deletion.' });
-    }
-};
-
-const getHealthSummary = async (req, res) => {
   try {
-    const userId = req.user._id;
-
-    // Fetch all health logs of the user
-    const logs = await HealthLog.find({ userId }).sort({ date: -1 });
-
-    if (!logs.length) {
-      return res.status(200).json({
-        success: true,
-        summary: {
-          latestLog: null,
-          averages: {
-            weight: null,
-            bloodPressure: null,
-            heartRate: null,
-            temperature: null
-          },
-          totalLogs: 0
-        }
-      });
-    }
-
-    const latestLog = logs[0];
-
-    // Compute averages
-    const avgWeight = logs.reduce((sum, l) => sum + (l.weight || 0), 0) / logs.length;
-    const avgBP = logs.reduce((sum, l) => {
-      if (l.vitals?.bloodPressure) {
-        const [sys] = l.vitals.bloodPressure.split('/').map(Number);
-        return sum + (sys || 0);
-      }
-      return sum;
-    }, 0) / logs.length;
-    const avgHR = logs.reduce((sum, l) => sum + (l.vitals?.heartRate || 0), 0) / logs.length;
-    const avgTemp = logs.reduce((sum, l) => sum + (l.vitals?.temperature || 0), 0) / logs.length;
-
-    res.status(200).json({
-      success: true,
-      summary: {
-        latestLog,
-        averages: {
-          weight: avgWeight,
-          bloodPressure: avgBP,
-          heartRate: avgHR,
-          temperature: avgTemp
-        },
-        totalLogs: logs.length
-      }
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: 'Failed to get health summary' });
+    await User.findByIdAndDelete(req.user.id);
+    res.status(200).json({ message: "Account deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete account" });
   }
 };
 
-module.exports = { updateUserProfile, toggleTwoFA, deleteAccount, getHealthSummary };
+const getAllDoctors = async (req, res) => {
+  try {
+    const doctors = await Doctor.find({ isDoctorVerified: true }).select("name specialty");
+    res.json(doctors);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch doctors" });
+  }
+};
+
+module.exports = { updateUserProfile, getUserProfile, toggleTwoFA, deleteAccount, getHealthSummary, uploadProfilePic, changePassword, getAllDoctors };

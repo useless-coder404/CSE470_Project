@@ -42,6 +42,9 @@ const registerUser = async (req, res) => {
       otp,
       otpExpiresAt,
       isVerified: false,
+      role: req.body.role, 
+      verificationStatus: req.body.role === 'doctor' ? 'Pending' : 'None',
+      docsUploaded: req.body.role === 'doctor' ? false : undefined
     });
 
     await newUser.save();
@@ -58,6 +61,7 @@ const registerUser = async (req, res) => {
       message: 'User registered. Check your email for the OTP to verify your account.',
       userId: newUser._id,
     });
+
   } catch (error) {
     console.error('Error during registration:', error);
     return res.status(500).json({
@@ -93,7 +97,7 @@ const verifyOTP = async (req, res) => {
       return res.status(400).json({ message: 'OTP has expired. Please register again or request a new one.' });
     }
 
-    if (user.otp !== otp) {
+    if (String(user.otp).trim() !== String(otp).trim()) {
       return res.status(400).json({ message: 'Invalid OTP.' });
     }
 
@@ -104,7 +108,8 @@ const verifyOTP = async (req, res) => {
     user.otpExpiresAt = null;
 
     if (role === 'doctor') {
-      user.verificationStatus = 'Pending'; // doctor's verification is pending
+      user.verificationStatus = 'Pending'; 
+      user.docsUploaded = false; 
     }
 
     await AuditLog.create({
@@ -115,7 +120,6 @@ const verifyOTP = async (req, res) => {
 
     await user.save();
 
-    // Send welcome/status email
     if (role === 'user') {
       await sendEmail({
         to: user.email,
@@ -130,11 +134,10 @@ const verifyOTP = async (req, res) => {
         text: `Welcome to our platform, ${user.name}! Your registration is now at pending, wait for verification.`,
         html: `<p>Welcome to our platform <strong>${user.name}</strong>! Your registration is now at pending, wait for verification.</p>`,
       });
-    }
-
+    } 
     res.status(200).json({
       message: 'OTP verified and role locked successfully.',
-      redirect: role === 'doctor' ? '/upload-documents' : '/login',
+      redirect: '/login',
     });
   } catch (error) {
     console.error('OTP Verification Error:', error);
@@ -142,16 +145,50 @@ const verifyOTP = async (req, res) => {
   }
 };
 
+const resendOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ message: 'User is already verified.' });
+    }
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    await user.save();
+
+    // Send OTP email
+    await sendEmail({
+      to: user.email,
+      subject: 'Your OTP Code',
+      text: `Your OTP is: ${otp}. It will expire in 5 minutes.`,
+      html: `<h3>OTP Verification</h3><p>Your OTP is: <b>${otp}</b></p>`,
+    });
+
+    return res.status(200).json({ message: 'OTP resent successfully. Check your email.' });
+  } catch (error) {
+    console.error('Resend OTP Error:', error);
+    return res.status(500).json({ message: 'Something went wrong while resending OTP.' });
+  }
+};
+
 const loginUser = async (req, res) => {
   try {
-    const { emailOrusername, password } = req.body;
+    const { emailOrUsername, password } = req.body;
 
-    if (!emailOrusername || !password) {
+    if (!emailOrUsername || !password) {
       return res.status(400).json({ message: 'Email/Username and password required.' });
     }
 
     const user = await User.findOne({
-      $or: [{ email: emailOrusername.toLowerCase().trim() }, { username: emailOrusername }],
+      $or: [{ email: emailOrUsername.toLowerCase().trim() }, { username: emailOrUsername }],
     });
 
     if (!user) return res.status(404).json({ message: 'User not found.' });
@@ -161,7 +198,6 @@ const loginUser = async (req, res) => {
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials.' });
 
     if (user.isTwoFAEnabled) {
-      // Generate and send OTP for 2FA
       const otp = generateOTP();
       const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -197,17 +233,38 @@ const loginUser = async (req, res) => {
         token: tempToken,
       });
     } else {
-      // 2FA not enabled, issue normal token with isTwoFAVerified: true
+      // 2FA not enabled
       const token = jwt.sign(
         {
           id: user._id,
           role: user.role,
           email: user.email,
+          verificationStatus: user.verificationStatus,
+          docsUploaded: user.docsUploaded,
           isTwoFAVerified: true,
         },
         process.env.JWT_SECRET,
         { expiresIn: '1d' }
       );
+
+      // Doctor-specific redirection
+      if (user.role === 'doctor') {
+        if (!user.docsUploaded || user.verificationStatus !== 'Verified') {
+          return res.status(200).json({
+            message: 'Verification Pending. Please wait for admin approval.',
+            redirect: '/doctor/upload-docs',
+            token,
+          });
+        }
+      
+        if (user.verificationStatus === 'Verified') {
+          return res.status(200).json({
+            message: 'Login successful',
+            redirect: '/doctor/dashboard',
+            token,
+          });
+        }
+      }
 
       return res.status(200).json({
         message: 'Login successful',
@@ -220,6 +277,7 @@ const loginUser = async (req, res) => {
   }
 };
 
+
 const verify2FA = async (req, res) => {
   try {
     const { otp } = req.body;
@@ -228,7 +286,6 @@ const verify2FA = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    // Allow verification if 2FA is enabled OR setup is pending
     if (!user.isTwoFAEnabled && !user.twoFASetupPending) {
       return res.status(400).json({ message: '2FA is not enabled for this user.' });
     }
@@ -241,11 +298,9 @@ const verify2FA = async (req, res) => {
       return res.status(401).json({ message: 'Invalid OTP.' });
     }
 
-    // Clear token and expiry after successful verification
     user.twoFAToken = null;
     user.twoFATokenExpires = null;
 
-    // If it was setup pending, now fully enable 2FA
     if (user.twoFASetupPending) {
       user.twoFASetupPending = false;
       user.isTwoFAEnabled = true;
@@ -377,4 +432,4 @@ const logout = async (req, res) => {
 };
 
 
-module.exports = { registerUser, verifyOTP, loginUser, verify2FA, verifyRecoveryCode, regenerateRecoveryCodes, logout, };
+module.exports = { registerUser, verifyOTP, resendOTP, loginUser, verify2FA, verifyRecoveryCode, regenerateRecoveryCodes, logout, };

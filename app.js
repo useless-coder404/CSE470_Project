@@ -6,16 +6,13 @@ const path = require("path");
 const authRouter = require('./routes/authRoutes');
 const doctorRouter = require('./routes/doctorRoutes');
 const adminRouter = require('./routes/adminRoutes');
-const userRouter = require('./routes/userRoutes');
-const notifyRouter = require('./routes/notificationRoutes');
-const aiRouter = require('./routes/aiRoutes');
 
 
 dotenv.config();
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://localhost:3000',
   credentials: true,
 }));
 
@@ -27,9 +24,6 @@ app.use(cookieParser());
 app.use('/api/auth', authRouter);
 app.use('/api/doctor', doctorRouter);
 app.use('/api/admin', adminRouter);
-app.use('/api/user', userRouter);
-app.use('/api/notifications', notifyRouter);
-app.use('/api/ai', aiRouter);
 
 
 app.use((err, req, res, next) => {

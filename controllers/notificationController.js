@@ -1,8 +1,19 @@
 const Notification = require('../models/Notification');
 
-const createNotification = async (userId, title, message, type = 'system') => {
+const createNotification = async ({ recipientId, role, title, message, type = 'system' }) => {
   try {
-    const notif = new Notification({ userId, title, message, type });
+    if (!recipientId || !role || !title || !message) {
+      throw new Error("recipientId, role, title, and message are required to create a notification");
+    }
+
+    const notif = new Notification({
+      recipientId,
+      role,
+      title,
+      message,
+      type
+    });
+
     await notif.save();
     return notif;
   } catch (err) {
@@ -12,8 +23,9 @@ const createNotification = async (userId, title, message, type = 'system') => {
 
 const getNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.user._id })
+    const notifications = await Notification.find({ recipientId: req.user._id })
       .sort({ createdAt: -1 });
+
     res.json({ success: true, notifications });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error fetching notifications' });
@@ -23,7 +35,7 @@ const getNotifications = async (req, res) => {
 const markAsRead = async (req, res) => {
   try {
     await Notification.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user._id },
+      { _id: req.params.id, recipientId: req.user._id },
       { isRead: true }
     );
     res.json({ success: true, message: 'Marked as read' });
@@ -32,5 +44,4 @@ const markAsRead = async (req, res) => {
   }
 };
 
-
-module.exports = {createNotification, getNotifications, markAsRead};
+module.exports = { createNotification, getNotifications, markAsRead };
